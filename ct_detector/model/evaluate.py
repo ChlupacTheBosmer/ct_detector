@@ -3,33 +3,78 @@
 """
 evaluate.py
 
-A script providing:
-1) A function to evaluate a single YOLO model using the Ultralytics .val() method.
-2) A function to compare multiple YOLO models side-by-side and display results as a table.
+A script that allows you to either:
+1) Evaluate a single YOLO model on a dataset.
+2) Compare multiple YOLO models side-by-side on the same dataset.
 
-Usage (CLI for single model):
-    python evaluate.py --model yolov8n.pt --data coco128.yaml --conf 0.25 --iou 0.5
+It uses the Ultralytics YOLO package's `.val()` method to compute metrics
+like mAP@0.5, mAP@0.5:0.95, precision, and recall. It also gathers speed
+(inference and NMS/postprocess times).
 
-Usage (notebook or Python script):
-    from evaluate import evaluate_yolo_model, compare_models
+Usage (CLI):
 
-    # Single model:
-    results = evaluate_yolo_model(...)
+    # SINGLE MODEL EVALUATION:
+    python evaluate.py single \
+        --model yolov8n.pt \
+        --data coco128.yaml \
+        --conf 0.25 \
+        --iou 0.5 \
+        --max_det 300 \
+        --device '' \
+        --imgsz 640 \
+        --save_json \
+        --project runs/val \
+        --name exp \
+        --verbose
 
-    # Multiple models:
-    compare_models(
-        model_paths=['modelA.pt', 'modelB.pt'],
+    # MULTI-MODEL COMPARISON:
+    python evaluate.py compare \
+        --models yolov8n.pt yolov8s.pt \
+        --data coco128.yaml \
+        --conf 0.25 \
+        --iou 0.5 \
+        --max_det 300 \
+        --device '' \
+        --imgsz 640 \
+        --project runs/val \
+        --name compare \
+        --verbose
+
+Usage (in a Python script or Jupyter notebook):
+    from evaluate import evaluate_model, compare_models
+
+    # Single-model evaluation
+    results = evaluate_model(model_path='yolov8n.pt', data_path='coco128.yaml')
+
+    # Multi-model comparison
+    raw_results_dict = compare_models(
+        model_paths=['yolov8n.pt', 'yolov8s.pt'],
         data_path='coco128.yaml'
     )
+
+The script outputs results to the console. For multi-model comparison, a table
+summarizing metrics across all models is printed.
 """
 
 import argparse
 from ultralytics import YOLO
 import pandas as pd
 import os
-# Optional: If you want to format tables nicely in console, you can install tabulate
+
+
+# ----------------------------------------------------------------
+# Helper / Internal Functions
+# ----------------------------------------------------------------
 
 def _get_model_metrics(results, model_path):
+    """
+       Extract key metrics from a model's `results` object and return them as
+       a list ready to be placed into a DataFrame row.
+
+       :param results: Ultralytics results object after running .val().
+       :param model_path: Path to the model weights file used (string).
+       :return: List of string-formatted metric values in a specific order.
+   """
     return [
         os.path.basename(os.path.splitext(model_path)[0]),
         f"{results.results_dict['fitness']:.4f}",
@@ -42,6 +87,12 @@ def _get_model_metrics(results, model_path):
     ]
 
 def print_metrics_table(df):
+    """
+        Print a DataFrame in a tabular format using 'tabulate' if available.
+        Falls back to basic DataFrame printing if tabulate is not installed.
+
+        :param df: A pandas DataFrame with columns and data to display.
+    """
     try:
         from tabulate import tabulate
         print(tabulate(df, headers='keys', tablefmt='psql', showindex=False))
@@ -50,6 +101,14 @@ def print_metrics_table(df):
         print(df.to_string(index=False))
 
 def get_metrics(results, model_path):
+    """
+        Create a brief DataFrame summarizing top-line metrics like fitness, mAP, etc.,
+        for a single model's results, then return that DataFrame.
+
+        :param results: Ultralytics results object after .val().
+        :param model_path: Path to model weights used for clarity in the table.
+        :return: pandas DataFrame with columns for relevant metrics.
+    """
     print("\n--- Evaluation Metrics ---")
     df = pd.DataFrame(
         columns=['Model:', 'fitness', 'mAP50(B)', 'mAP50-95(B)', "precision(B)", "recall(B)", "Speed(inference)",
@@ -60,6 +119,13 @@ def get_metrics(results, model_path):
 
 
 def get_class_metrics(results):
+    """
+        Create a DataFrame of per-class metrics: AP, precision, recall.
+        This draws from the 'names' (class labels) and 'box.maps', 'box.p', 'box.r' in the results object.
+
+        :param results: Ultralytics results object.
+        :return: pandas DataFrame with rows per class and columns for AP, precision, recall.
+    """
     cls_maps = {cls: {"map": mp, "p": p, "r": r} for cls, mp, p, r in
                 zip(results.names.values(), results.box.maps, results.box.p, results.box.r)}
     print("--- Per-class metrics ---")
@@ -68,6 +134,11 @@ def get_class_metrics(results):
         df.loc[len(df)] = [k, f"{v['map']:.4f}", f"{v['p']:.4f}", f"{v['r']:.4f}"]
 
     return df
+
+
+# ----------------------------------------------------------------
+# Core Functions for Model Evaluation & Comparison
+# ----------------------------------------------------------------
 
 
 def evaluate_model(
@@ -84,22 +155,25 @@ def evaluate_model(
         verbose: bool = False
 ):
     """
-    Evaluate a YOLO model using Ultralytics' .val() method.
+    Evaluate a single YOLO model on a specified dataset using Ultralytics' .val() method.
 
     :param model_path: Path to the YOLO model weights (e.g., 'yolov8n.pt').
     :param data_path: Path to the dataset config .yaml or directory of images.
-    :param conf: Confidence threshold for inference.
-    :param iou: IoU threshold for NMS.
-    :param max_det: Maximum number of detections per image.
-    :param device: Device to run on ('cpu', '0', etc.). '' = auto.
-    :param imgsz: Image size during inference/validation.
-    :param save_json: If True, save results to JSON (COCO format).
-    :param project: Where to save evaluation results.
-    :param name: Subfolder name for results inside 'project'.
-    :param verbose: If True, print additional logs.
+    :param conf: Confidence threshold for predictions (float).
+    :param iou: IoU threshold for NMS (float).
+    :param max_det: Maximum number of detections per image (int).
+    :param device: Device to run on ('cpu', '0', etc.). '' uses auto-detection.
+    :param imgsz: Image size used during validation inference.
+    :param save_json: If True, saves results in COCO JSON format (if dataset supports it).
+    :param project: Folder path for saving validation outputs (str).
+    :param name: Subfolder name within 'project' for storing outputs (str).
+    :param verbose: If True, prints extra logs and summary tables.
 
-    :return: A Ultralytics 'Metrics' object with evaluation results,
-             including fields like box.map (mAP@0.5), box.maps (per-class AP), speed, etc.
+    :return: A Ultralytics results object containing metrics, including:
+             - results.box.map (mAP@0.5)
+             - results.box.maps (list of per-class APs)
+             - results.results_dict (dictionary of additional metrics)
+             - results.speed (dict with speed info: inference, postprocess, etc.)
     """
     # Load the model
     model = YOLO(model_path)
@@ -139,18 +213,23 @@ def compare_models(
         verbose: bool = False
 ):
     """
-    Evaluate multiple YOLO models on the same dataset and display their metrics side-by-side.
+    Compare multiple YOLO models side-by-side on the same dataset. Each model is evaluated
+    with the same parameters, then a table of metrics is displayed.
 
     :param model_paths: List of paths to model weights (e.g., ['modelA.pt', 'modelB.pt']).
     :param data_path: Path to dataset config .yaml or folder of images.
-    :param conf: Confidence threshold.
+    :param conf: Confidence threshold for predictions.
     :param iou: IoU threshold for NMS.
     :param max_det: Max detections per image.
-    :param device: Compute device: ''=auto, 'cpu', '0' for GPU.
-    :param imgsz: Inference image size.
-    :param verbose: If True, print extra info.
+    :param device: Compute device: ''=auto, 'cpu', '0' for GPU 0, etc.
+    :param imgsz: Image size during inference.
+    :param project: Base directory for saving evaluation results.
+    :param name: Subfolder name under 'project' for storing results.
+    :param verbose: If True, prints logs and individual results for each model.
+
+    :return: A dictionary mapping {model_name: results_object} so you can further analyze
+             each model's results if needed.
     """
-    import pandas as pd
 
     # Prepare a DataFrame to store results
     df = pd.DataFrame(
@@ -185,40 +264,7 @@ def compare_models(
         raw_results[os.path.basename(os.path.splitext(model_path)[0])] = results
 
         # Collect relevant metrics
-        # For YOLOv8, results.box.map is mAP@0.5
-        # results.box.maps is a list of per-class APs
-        # COCO-style mAP@0.5:0.95 is often reported as results.box.map50_95 in older versions,
-        # but in recent versions, it's stored in results.box.map if you run multiple IoU thresholds.
-        # We'll use results.box.map for 0.5, and results.box.map50_95 if available, or fallback to the same if not.
-        # Additional metrics from results.box are results.box.precision, results.box.recall, etc.
-
         df.loc[len(df)] = _get_model_metrics(results, model_path)
-
-    #     # The "map" attribute is mAP@0.5 by default in the latest ultralytics package
-    #     # The "map50_95" attribute is the COCO style
-    #     map_05 = getattr(results.box, 'map50', None) or 0.0
-    #     map_05_95 = getattr(results.box, 'map', None)  # might be None if not computed
-    #     if map_05_95 is None:
-    #         # If it's not available, we just reuse map_05 to avoid None
-    #         map_05_95 = map_05
-    #
-    #     precision = getattr(results.box, 'mp', 0.0)
-    #     recall = getattr(results.box, 'mr', 0.0)
-    #
-    #     # Speed info in results.speed is a dict: {'preprocess': x, 'inference': y, 'nms': z}
-    #     inference_ms = results.speed.get('inference', 0.0)
-    #     nms_ms = results.speed.get('postprocess', 0.0)
-    #
-    #     comparison_data["Model"].append(model_path)
-    #     comparison_data["mAP@0.5"].append(map_05)
-    #     comparison_data["mAP@0.5:0.95"].append(map_05_95)
-    #     comparison_data["Precision"].append(precision)
-    #     comparison_data["Recall"].append(recall)
-    #     comparison_data["Inference (ms/img)"].append(inference_ms)
-    #     comparison_data["NMS (ms/img)"].append(nms_ms)
-    #
-    # # Create a pandas DataFrame
-    # df = pd.DataFrame(comparison_data)
 
     # Print it nicely in console:
     print("\n--- Model Comparison ---")
@@ -227,56 +273,107 @@ def compare_models(
     return raw_results
 
 
-def parse_args():
-    """Parse command-line arguments for single-model evaluation (not comparison)."""
-    parser = argparse.ArgumentParser(description="Evaluate a YOLO model using Ultralytics' .val()")
+# ----------------------------------------------------------------
+# CLI Implementation (Subcommands: 'single' or 'compare')
+# ----------------------------------------------------------------
 
-    parser.add_argument('--model', type=str, required=True, help='Path to YOLO model weights')
-    parser.add_argument('--data', type=str, required=True, help='Path to data config or dataset')
-    parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold')
-    parser.add_argument('--iou', type=float, default=0.45, help='IoU threshold for NMS')
-    parser.add_argument('--max_det', type=int, default=300, help='Maximum detections per image')
-    parser.add_argument('--device', type=str, default='', help="Device: ''=Auto, 'cpu', '0', etc.")
-    parser.add_argument('--imgsz', type=int, default=640, help='Inference image size')
-    parser.add_argument('--save_json', action='store_true', help='Save output to JSON (COCO format)')
-    parser.add_argument('--project', type=str, default='runs/val', help='Project path for results')
-    parser.add_argument('--name', type=str, default='exp', help='Subfolder name under project path')
-    parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+def parse_cli_args():
+    """
+    Parse CLI arguments to handle two subcommands:
+      - single: Evaluate a single model
+      - compare: Compare multiple models
+
+    Returns an argparse Namespace where `args.command` is either 'single' or 'compare'.
+    """
+    parser = argparse.ArgumentParser(
+        description="Evaluate or compare YOLO models using Ultralytics' .val()"
+    )
+    subparsers = parser.add_subparsers(dest='command', required=True)
+
+    # Subcommand: single
+    single_parser = subparsers.add_parser('single', help='Evaluate a single YOLO model on a dataset')
+    single_parser.add_argument('--model', type=str, required=True, help='Path to YOLO model weights')
+    single_parser.add_argument('--data', type=str, required=True, help='Path to data config or dataset')
+    single_parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold')
+    single_parser.add_argument('--iou', type=float, default=0.45, help='IoU threshold for NMS')
+    single_parser.add_argument('--max_det', type=int, default=300, help='Max detections per image')
+    single_parser.add_argument('--device', type=str, default='', help="Device: ''=Auto, 'cpu', '0', etc.")
+    single_parser.add_argument('--imgsz', type=int, default=640, help='Inference image size')
+    single_parser.add_argument('--save_json', action='store_true', help='Save output to JSON (COCO format)')
+    single_parser.add_argument('--project', type=str, default='runs/val', help='Project path for results')
+    single_parser.add_argument('--name', type=str, default='exp', help='Subfolder under project path')
+    single_parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+
+    # Subcommand: compare
+    compare_parser = subparsers.add_parser('compare', help='Compare multiple YOLO models on the same dataset')
+    compare_parser.add_argument('--models', nargs='+', required=True, help='Paths to YOLO model weights (space-separated)')
+    compare_parser.add_argument('--data', type=str, required=True, help='Path to data config or dataset')
+    compare_parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold')
+    compare_parser.add_argument('--iou', type=float, default=0.45, help='IoU threshold for NMS')
+    compare_parser.add_argument('--max_det', type=int, default=300, help='Max detections per image')
+    compare_parser.add_argument('--device', type=str, default='', help="Device: ''=Auto, 'cpu', '0', etc.")
+    compare_parser.add_argument('--imgsz', type=int, default=640, help='Inference image size')
+    compare_parser.add_argument('--project', type=str, default='runs/val', help='Project path for results')
+    compare_parser.add_argument('--name', type=str, default='compare', help='Subfolder under project path')
+    compare_parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
 
     return parser.parse_args()
 
 
 def main():
-    # This main() is for single-model eval usage from CLI
-    args = parse_args()
+    """
+    Main entry point for CLI usage. Determines which subcommand
+    was requested ('single' or 'compare') and calls the appropriate function
+    with the parsed arguments.
+    """
+    args = parse_cli_args()
 
-    # Evaluate
-    results = evaluate_model(
-        model_path=args.model,
-        data_path=args.data,
-        conf=args.conf,
-        iou=args.iou,
-        max_det=args.max_det,
-        device=args.device,
-        imgsz=args.imgsz,
-        save_json=args.save_json,
-        project=args.project,
-        name=args.name,
-        verbose=args.verbose
-    )
+    if args.command == 'single':
+        # Single-model evaluation
+        results = evaluate_model(
+            model_path=args.model,
+            data_path=args.data,
+            conf=args.conf,
+            iou=args.iou,
+            max_det=args.max_det,
+            device=args.device,
+            imgsz=args.imgsz,
+            save_json=args.save_json,
+            project=args.project,
+            name=args.name,
+            verbose=args.verbose
+        )
 
-    # Print out some common metrics
-    print(f"\n--- Evaluation Results ---\n")
-    print(f"mAP@0.5: {results.box.map:0.3f}")
-    # The 'map50_95' might be there if you have multi-IoU evaluation
-    map_50_95 = getattr(results.box, 'map50_95', None)
-    if map_50_95:
-        print(f"mAP@0.5:0.95: {map_50_95:0.3f}")
+        # Print out some common metrics at the end (non-verbose summary)
+        print(f"\n--- Evaluation Results ---\n")
+        print(f"mAP@0.5:        {results.box.map:0.3f}")
+        map_50_95 = getattr(results.box, 'map50_95', None)
+        if map_50_95:
+            print(f"mAP@0.5:0.95:   {map_50_95:0.3f}")
+        print(f"Precision:      {results.box.precision:0.3f}")
+        print(f"Recall:         {results.box.recall:0.3f}")
+        print(f"Inference time: {results.speed['inference']:0.2f} ms/frame")
+        print(f"NMS time:       {results.speed['nms']:0.2f} ms/frame\n")
 
-    print(f"Precision: {results.box.precision:0.3f}")
-    print(f"Recall: {results.box.recall:0.3f}")
-    print(f"Inference speed: {results.speed['inference']:0.2f} ms/frame")
-    print(f"NMS speed: {results.speed['nms']:0.2f} ms/frame\n")
+    elif args.command == 'compare':
+        # Multi-model comparison
+        raw_results = compare_models(
+            model_paths=args.models,
+            data_path=args.data,
+            conf=args.conf,
+            iou=args.iou,
+            max_det=args.max_det,
+            device=args.device,
+            imgsz=args.imgsz,
+            project=args.project,
+            name=args.name,
+            verbose=args.verbose
+        )
+        # The compare_models function already prints a table of results.
+        # raw_results is a dict: {model_name: results_object}, if further analysis is needed.
+
+    else:
+        raise ValueError(f"Unknown command: {args.command}")
 
 
 if __name__ == '__main__':
