@@ -1,0 +1,8 @@
+names:
+  0: calf
+  1: ear
+  2: elephant
+  3: tusk
+path: ./1
+train: null
+val: val.txt
