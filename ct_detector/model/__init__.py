@@ -1,5 +1,7 @@
 import os
 from ct_detector.model.evaluate import evaluate_model, compare_models
+from ct_detector.model.predict import CtPredictor
+from ct_detector.model.ensemble import CtEnsembler
 
 def get_assets_path():
     """
@@ -57,4 +59,6 @@ DATASETS = get_datasets_from_directory(DATASETS_DIR)
 
 __all__ = [MODELS,
            evaluate_model,
-           compare_models]
+           compare_models,
+           CtPredictor,
+           CtEnsembler]
