@@ -65,7 +65,6 @@ def load_labels_for_images(img_path: Union[str, Path]) -> Optional[dict]:
             data = [[*row[1:], 0.0, row[0]] for row in raw]  # class_id will be filled by 'labels', so set to dummy
 
             # Construct Boxes object
-            print(data)
             if data:
 
                 # Process box-by-box
