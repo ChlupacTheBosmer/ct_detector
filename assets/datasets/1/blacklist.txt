@@ -1,0 +1,10 @@
+./val/images/0002_jpg.rf.1e66a3c788c21cd312d09a6288c36f4d.jpg
+./val/images/0002_jpg.rf.78458b7843db7c301675ccf916f021a8.jpg
+./val/images/0004_jpg.rf.f30bfc1ee94725fc9ee7854787c58972.jpg
+./val/images/0007_jpg.rf.1c1050aef4baf5db95f7f19a8ed2789f.jpg
+./val/images/0007_jpg.rf.8ae01f7487627227948b9299da8e9421.jpg
+./val/images/0007_jpg.rf.33a726676172b496741956cc6e85fad5.jpg
+./val/images/0008_jpg.rf.f216a1c71a9848e4b58d0a2c97060d85.jpg
+./val/images/0009_jpg.rf.336ca91d37be5a758cd8f1d0b94cd4a2.jpg
+./val/images/0009_jpg.rf.c7053c12d7310faf2bc9de3811311edd.jpg
+./val/images/-calf-in-fenced-enclosure-with-hay-bales-at-walt-disney-world-animal-kingdom_jpg.rf.a46c5ce1e06aebf759df6a494204dd2d.jpg
