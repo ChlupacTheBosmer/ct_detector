@@ -8,7 +8,7 @@ from ultralytics.engine.predictor import BasePredictor
 from ct_detector.callbacks.base import predict_callback
 
 
-def annotate(directory: str):
+def annotate(directory: str, verbose: bool = True):
     """
     Creates a callback function that saves prediction results as .txt files into the specified directory.
 
@@ -19,6 +19,7 @@ def annotate(directory: str):
     using the result.save_txt method (without saving confidence values).
 
     :param directory: The directory where .txt files will be saved.
+    :param verbose: If True, prints the path of each saved .txt file.
     :return: A callback function that processes a list of Results.
     """
 
@@ -42,7 +43,8 @@ def annotate(directory: str):
             try:
                 # Save the text file without confidence values
                 r.save_txt(txt_file, save_conf=False)
-                print(f"Saved .txt file: {txt_file}")
+                if verbose:
+                    print(f"Saved .txt file: {txt_file}")
             except Exception as e:
                 print(f"Error saving .txt file for {r.path}: {e}")
 
