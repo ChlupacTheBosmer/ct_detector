@@ -147,3 +147,15 @@ def nms(
     final_tensor = torch.stack(selected_boxes, dim=0)  # shape [K,6]
     base.boxes = Boxes(final_tensor, base.orig_shape)
     return base
+
+
+def iou(boxA, boxB):
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    areaA = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    union = areaA + areaB - interArea
+    return interArea / union if union > 0 else 0.0
