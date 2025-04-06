@@ -10,5 +10,17 @@ def display_file_image(image_path, width=None, height=None):
         width (int, optional): Width of the displayed image in pixels
         height (int, optional): Height of the displayed image in pixels
     """
-    display(Image(filename=str(plot_fname), width=width, height=height))
     display(Image(filename=str(image_path), width=width, height=height))
+
+
+def display_pil_image(image, width=None, height=None):
+    """
+    A callback function to display a PIL image in a Jupyter notebook.
+    Display the passed image in the Jupyter notebook with custom size.
+
+    Args:
+        image (PIL.Image): The PIL image to be displayed
+        width (int, optional): Width of the displayed image in pixels
+        height (int, optional): Height of the displayed image in pixels
+    """
+    display(image.resize((width, height)) if width and height else image)
