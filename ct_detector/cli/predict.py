@@ -211,7 +211,7 @@ def main():
             nms_conf_thres=args.nms_conf_thres,
             class_agnostic=args.class_agnostic,
             class_merge_map=class_merge_map,
-            frame_callback=frame_callback,
+            _callbacks=frame_callback,
             max_workers=args.max_workers
         )
 

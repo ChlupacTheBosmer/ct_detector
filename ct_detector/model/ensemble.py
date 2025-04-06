@@ -96,7 +96,7 @@ class CtEnsembler:
             nms_conf_thres: float = 0.0,
             class_agnostic: bool = True,
             class_merge_map: Optional[Dict[int, int]] = None,
-            frame_callback: Optional[Callable[[Results, int], None]] = None,
+            _callbacks: List[Optional[Callable[[Results], None]]] = None,
             max_workers: int = 4,
     ) -> Generator[Results, None, None]:
         """
@@ -113,14 +113,14 @@ class CtEnsembler:
             nms_conf_thres: Confidence threshold for the merge function (if it uses it).
             class_agnostic: If True, merges across all classes.
             class_merge_map: A dictionary mapping original cls ID -> group ID.
-            frame_callback: Optionally called after merging each frame. (merged_result, frame_idx)
+            _callbacks: List of callables optionally called after merging each frame. Is passed merged_result.
             max_workers: concurrency thread count.
 
         Yields:
             Merged Results object for each frame.
         """
         # 1) Load frames as a list of BGR NumPy arrays
-        frames = load_images_from_source(source)
+        frames, paths = load_images_from_source(source)
 
         # 2) For each frame, run each model concurrently
         for frame_idx, frame in enumerate(frames):
@@ -152,11 +152,23 @@ class CtEnsembler:
                                   class_merge_map=class_merge_map
                                   )
                 if merged is not None:
-                    # 4) Callback
-                    if frame_callback:
-                        try:
-                            frame_callback(merged, frame_idx)
-                        except Exception as e:
-                            print(f"Frame callback error: {e}")
+
+                    # Attach metadata to the merged result
+                    merged.orig_img = frame
+                    merged.save_dir = results_this_frame[0].save_dir if hasattr(results_this_frame[0], 'save_dir') else None
+                    merged.names = results_this_frame[0].names if hasattr(results_this_frame[0], 'names') else None
+                    merged.path = paths[frame_idx] if paths and len(
+                        paths) > frame_idx else None  # attach the path if available
+
+                    # 4) Callbacks
+                    if _callbacks and isinstance(_callbacks, list) and len(_callbacks) > 0:
+                        for cb in _callbacks:
+                            if callable(cb):
+                                try:
+                                    cb([merged])
+                                except Exception as e:
+                                    print(f"Frame callback error: {e}")
+                            else:
+                                print(f"Callback {cb} is not callable")
 
                     yield merged

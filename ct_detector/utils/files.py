@@ -18,17 +18,17 @@ def load_images_from_source(
       - Single directory path of images.
       - Single .txt file with lines of image paths.
 
-    Returns a list of images as [H x W x 3] BGR arrays.
+    Returns a list of images as [H x W x 3] BGR arrays and a list of paths.
     """
     if isinstance(source, np.ndarray):
         # Single image array
         if source.ndim == 3:
-            return [source]
+            return [source], ["image_01.nparray"]
         else:
             raise ValueError("NumPy array must be shape (H, W, C) for a single image.")
     elif isinstance(source, list) and all(isinstance(item, np.ndarray) for item in source):
         # List of arrays
-        return source
+        return source, [f"image_{i:02d}.nparray" for i in range(len(source))]
 
     # Otherwise, source is presumably a path
     source_path = Path(source)
@@ -42,7 +42,7 @@ def load_images_from_source(
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             if img is None:
                 raise ValueError(f"Failed to load image: {source_path}")
-            return [img]
+            return [img], [str(source_path)]
         elif source_path.suffix.lower() == ".txt":
             # This is a text file of image paths
             return _load_images_from_txt(source_path, extensions)
@@ -53,7 +53,7 @@ def load_images_from_source(
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             if img is None:
                 raise ValueError(f"Failed to load file: {source_path}")
-            return [img]
+            return [img], [str(source_path)]
     else:
         # It's a directory => load all images inside
         return _load_images_from_dir(source_path, extensions)
@@ -65,6 +65,7 @@ def _load_images_from_txt(txt_path: Path, extensions: List[str]) -> List[np.ndar
     loads each image in BGR format, and returns in a list.
     """
     images = []
+    paths = []
     base_dir = txt_path.parent  # so relative paths are resolved
     with open(txt_path, "r") as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -77,7 +78,8 @@ def _load_images_from_txt(txt_path: Path, extensions: List[str]) -> List[np.ndar
         if img is None:
             raise ValueError(f"Failed to load image: {img_path}")
         images.append(img)
-    return images
+        paths.append(str(img_path))
+    return images, paths
 
 
 def _load_images_from_dir(dir_path: Path, extensions: List[str]) -> List[np.ndarray]:
@@ -85,6 +87,7 @@ def _load_images_from_dir(dir_path: Path, extensions: List[str]) -> List[np.ndar
     Scans a directory for recognized image files, loads them, returns a list of BGR arrays.
     """
     images = []
+    paths = []
     for file in sorted(dir_path.iterdir()):
         if file.suffix.lower() in extensions:
             img = cv2.imread(str(file))
@@ -92,4 +95,5 @@ def _load_images_from_dir(dir_path: Path, extensions: List[str]) -> List[np.ndar
             if img is None:
                 raise ValueError(f"Failed to load image: {file}")
             images.append(img)
-    return images
+            paths.append(str(file))
+    return images, paths
