@@ -14,45 +14,46 @@ from ultralytics.engine.results import Results
 
 from ct_detector.callbacks.base import predict_callback
 from ct_detector.callbacks.database import CLASS_MAP
+from ct_detector.utils.results import unpack_box
+from ct_detector.utils.mosaics import create_mosaic
 
 
 # 4) Helper function to create the mosaic
-def create_mosaic(crop_list: List[np.ndarray], mosaic_size=640) -> Optional[np.ndarray]:
-    if not crop_list:
-        return None
-
-    n = len(crop_list)
-    grid_cols = int(math.ceil(math.sqrt(n)))
-    grid_rows = int(math.ceil(n / grid_cols))
-    tile_w = mosaic_size // grid_cols
-    tile_h = mosaic_size // grid_rows
-
-    # create blank mosaic
-    mosaic_img = np.zeros((grid_rows * tile_h, grid_cols * tile_w, 3), dtype=np.uint8)
-
-    idx = 0
-    for row in range(grid_rows):
-        for col in range(grid_cols):
-            if idx >= n:
-                break
-            crop = crop_list[idx]
-            h, w, _ = crop.shape
-
-            # Compute scale to fill in the tile
-            scale = min(tile_w / w, tile_h / h)
-
-            # Now resize using the final scale
-            new_w = int(w * scale)
-            new_h = int(h * scale)
-            resized = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-            y_off = row * tile_h
-            x_off = col * tile_w
-            mosaic_img[y_off:y_off + new_h, x_off:x_off + new_w] = resized
-            idx += 1
-
-    return mosaic_img
-
+# def create_mosaic(crop_list: List[np.ndarray], mosaic_size=640) -> Optional[np.ndarray]:
+#     if not crop_list:
+#         return None
+#
+#     n = len(crop_list)
+#     grid_cols = int(math.ceil(math.sqrt(n)))
+#     grid_rows = int(math.ceil(n / grid_cols))
+#     tile_w = mosaic_size // grid_cols
+#     tile_h = mosaic_size // grid_rows
+#
+#     # create blank mosaic
+#     mosaic_img = np.zeros((grid_rows * tile_h, grid_cols * tile_w, 3), dtype=np.uint8)
+#
+#     idx = 0
+#     for row in range(grid_rows):
+#         for col in range(grid_cols):
+#             if idx >= n:
+#                 break
+#             crop = crop_list[idx]
+#             h, w, _ = crop.shape
+#
+#             # Compute scale to fill in the tile
+#             scale = min(tile_w / w, tile_h / h)
+#
+#             # Now resize using the final scale
+#             new_w = int(w * scale)
+#             new_h = int(h * scale)
+#             resized = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_AREA)
+#
+#             y_off = row * tile_h
+#             x_off = col * tile_w
+#             mosaic_img[y_off:y_off + new_h, x_off:x_off + new_w] = resized
+#             idx += 1
+#
+#     return mosaic_img
 
 def save_cls_mosaic(
         output_dir: str = "mosaic_output",
@@ -93,7 +94,8 @@ def save_cls_mosaic(
         ears_dir = os.path.join(output_dir, "ears_mosaics")
         tusks_dir = os.path.join(output_dir, "tusks_mosaics")
         elephants_dir = os.path.join(output_dir, "elephants_mosaics")
-        for d in [ears_dir, tusks_dir, elephants_dir]:
+        individual_dir = os.path.join(output_dir, "individual_crops")
+        for d in [ears_dir, tusks_dir, elephants_dir, individual_dir]:
             os.makedirs(d, exist_ok=True)
 
         for r in results:
@@ -121,6 +123,12 @@ def save_cls_mosaic(
                 print("[mosaic_callback] No valid original image available in results.")
                 return
 
+            # 6) Determine base filename
+            if isinstance(r.path, list):
+                base_name = Path(r.path[0]).stem
+            else:
+                base_name = Path(str(r.path)).stem
+
             # 2) Prepare lists for ear crops, tusk crops, elephant/calf crops
             ear_crops = []
             tusk_crops = []
@@ -130,8 +138,7 @@ def save_cls_mosaic(
             if r.boxes is not None and len(r.boxes) > 0:
                 # shape => [N,6] => x1,y1,x2,y2, conf, cls
                 for box in r.boxes.data.cpu().numpy():
-                    x1, y1, x2, y2, conf, cls = box
-                    cls = int(cls)
+                    x1, y1, x2, y2, track_id, conf, cls = unpack_box(box)
 
                     # 'save_one_box' expects a 1D or [1,4] shape in xyxy format
                     # We'll convert to a torch tensor. Then square, pad, etc.
@@ -164,16 +171,17 @@ def save_cls_mosaic(
                         # skip unknown classes
                         pass
 
+                    # 4) Save crops of individuals by track_id if available
+                    if track_id >= 0 and cls in [class_map['elephant'], class_map['calf']]:
+                        unique_ind_dir = os.path.join(individual_dir, f"{int(track_id)}")
+                        os.makedirs(unique_ind_dir, exist_ok=True)
+                        individual_path = os.path.join(unique_ind_dir, f"{base_name}{suffix}_{int(track_id)}.jpg")
+                        cv2.imwrite(individual_path, crop_img)
+
             # 5) Create each mosaic
             ear_mosaic = create_mosaic(ear_crops, mosaic_size=mosaic_size)
             tusk_mosaic = create_mosaic(tusk_crops, mosaic_size=mosaic_size)
             ele_mosaic = create_mosaic(ele_crops, mosaic_size=mosaic_size)
-
-            # 6) Determine base filename
-            if isinstance(r.path, list):
-                base_name = Path(r.path[0]).stem
-            else:
-                base_name = Path(str(r.path)).stem
 
             # 7) Save mosaic images if they exist
             if ear_mosaic is not None:
