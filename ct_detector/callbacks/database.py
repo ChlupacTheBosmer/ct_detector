@@ -323,3 +323,293 @@ def log_prediction_data_into_sqlite(
                 conn.close()
 
     return _callback
+
+
+import sqlite3
+import json
+import numpy as np
+from collections import defaultdict
+
+
+def create_individual_summary_table(conn, table_name):
+    """
+    Create a table that summarizes the number of elephants, calves, and total detected individuals by location.
+
+    Args:
+    conn (sqlite3.Connection): The SQLite connection object.
+    table_name (str): The name of the table to create.
+
+    Returns:
+    None
+    """
+    cur = conn.cursor()
+
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+        location TEXT PRIMARY KEY,
+        num_elephants INTEGER,
+        num_calves INTEGER,
+        num_total INTEGER,
+        id_elephants TEXT,
+        id_calves TEXT,
+        id_total TEXT,
+        avg_frames_ele REAL,
+        avg_frames_cal REAL,
+        avg_frames_all REAL
+    );
+    """
+    cur.execute(create_sql)
+    conn.commit()
+
+
+def create_camera_summary_table(conn, table_name):
+    """
+    Create a table that summarizes the number of elephants, calves, and total detected individuals by location and camera.
+
+    Args:
+    conn (sqlite3.Connection): The SQLite connection object.
+    table_name (str): The name of the table to create.
+
+    Returns:
+    None
+    """
+    cur = conn.cursor()
+
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+        location TEXT,
+        camera_id TEXT,
+        num_elephants INTEGER,
+        num_calves INTEGER,
+        num_total INTEGER,
+        id_elephants TEXT,
+        id_calves TEXT,
+        id_total TEXT,
+        avg_frames_ele REAL,
+        avg_frames_cal REAL,
+        avg_frames_all REAL,
+        PRIMARY KEY (location, camera_id)
+    );
+    """
+    cur.execute(create_sql)
+    conn.commit()
+
+
+def create_individual_details_table(conn, table_name):
+    """
+    Create a table that holds detailed information about individual detected IDs.
+
+    Args:
+    conn (sqlite3.Connection): The SQLite connection object.
+    table_name (str): The name of the table to create.
+
+    Returns:
+    None
+    """
+    cur = conn.cursor()
+
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+        ID TEXT,
+        location TEXT,
+        camera_ids TEXT,
+        num_frames INTEGER,
+        img_names TEXT,
+        PRIMARY KEY (ID, location)
+    );
+    """
+    cur.execute(create_sql)
+    conn.commit()
+
+
+def process_individuals_data(conn, source_table, summary_table, camera_summary_table, individual_details_table):
+    """
+    Process the data from the original table and insert into the three summary tables:
+    - Individual summary by location
+    - Camera summary by location and camera_id
+    - Individual details for each ID
+
+    Args:
+    conn (sqlite3.Connection): The SQLite connection object.
+    source_table (str): The name of the original table containing the elephant data.
+    summary_table (str): The name of the table to store individual summary data by location.
+    camera_summary_table (str): The name of the table to store camera-based summary data.
+    individual_details_table (str): The name of the table to store individual ID details.
+
+    Returns:
+    None
+    """
+    cur = conn.cursor()
+
+    # Step 1: Fetch all records from the original table
+    cur.execute(f"SELECT * FROM {source_table};")
+    rows = cur.fetchall()
+
+    # Initialize data structures to hold calculated values
+    location_data = defaultdict(lambda: {'elephants': 0, 'calves': 0, 'individuals': set(), 'elephant_ids': set(),
+                                         'calf_ids': set(), 'frames_ele': defaultdict(int),
+                                         'frames_cal': defaultdict(int), 'frames_all': defaultdict(int),
+                                         'camera_ids': set()})
+    camera_data = defaultdict(lambda: {'elephants': 0, 'calves': 0, 'individuals': set(), 'elephant_ids': set(),
+                                       'calf_ids': set(), 'frames_ele': defaultdict(int),
+                                       'frames_cal': defaultdict(int), 'frames_all': defaultdict(int)})
+
+    individual_data = defaultdict(lambda: {'camera_ids': set(), 'num_frames': 0, 'img_names': set()})
+
+    # Process each row in the source table
+    for row in rows:
+        image_id, num_elephants, num_calves, elephant_ids, calf_ids, num_individuals, \
+            ears_visible, tusks_visible, boxes_data, conf_values, max_ear_diagonal, max_tusk_diagonal, \
+            elephant_diagonal_for_largest_ear, elephant_diagonal_for_largest_tusk, ear_to_body_ratio, tusk_to_body_ratio, \
+            time_of_day, location, camera_id = row
+
+        # Parse the elephant and calf IDs from the JSON strings
+        elephant_ids = set(json.loads(elephant_ids))
+        calf_ids = set(json.loads(calf_ids))
+
+        # Update location-level data
+        location_data[location]['elephants'] += num_elephants
+        location_data[location]['calves'] += num_calves
+        location_data[location]['elephant_ids'].update(elephant_ids)
+        location_data[location]['calf_ids'].update(calf_ids)
+        location_data[location]['individuals'].update(elephant_ids, calf_ids)
+        location_data[location]['camera_ids'].add(camera_id)
+
+        # Update camera-level data
+        camera_data[(location, camera_id)]['elephants'] += num_elephants
+        camera_data[(location, camera_id)]['calves'] += num_calves
+        camera_data[(location, camera_id)]['elephant_ids'].update(elephant_ids)
+        camera_data[(location, camera_id)]['calf_ids'].update(calf_ids)
+        camera_data[(location, camera_id)]['individuals'].update(elephant_ids, calf_ids)
+
+        # Track frames for individuals (per location and camera)
+        for ele_id in elephant_ids:
+            location_data[location]['frames_ele'][ele_id] += 1
+            camera_data[(location, camera_id)]['frames_ele'][ele_id] += 1
+        for cal_id in calf_ids:
+            location_data[location]['frames_cal'][cal_id] += 1
+            camera_data[(location, camera_id)]['frames_cal'][cal_id] += 1
+        for ele_id in elephant_ids | calf_ids:
+            location_data[location]['frames_all'][ele_id] += 1
+            camera_data[(location, camera_id)]['frames_all'][ele_id] += 1
+            individual_data[ele_id]['camera_ids'].add(camera_id)
+            individual_data[ele_id]['img_names'].add(os.path.basename(image_id))
+
+    # Step 2: Insert summary data for each location (aggregated across all cameras)
+    for location, data in location_data.items():
+        num_elephants = data['elephants']
+        num_calves = data['calves']
+        num_total = num_elephants + num_calves
+
+        # Only elephant IDs for id_elephants, only calf IDs for id_calves, and both combined for id_total
+        id_elephants = json.dumps(list(data['elephant_ids']))
+        id_calves = json.dumps(list(data['calf_ids']))
+        id_total = json.dumps(list(data['individuals']))
+
+        avg_frames_ele = np.mean(list(data['frames_ele'].values())) if data['frames_ele'] else 0
+        avg_frames_cal = np.mean(list(data['frames_cal'].values())) if data['frames_cal'] else 0
+        avg_frames_all = np.mean(list(data['frames_all'].values())) if data['frames_all'] else 0
+
+        # Insert into the summary table for location-based data
+        cur.execute(f"""
+        INSERT OR REPLACE INTO {summary_table} 
+        (location, num_elephants, num_calves, num_total, id_elephants, id_calves, id_total, 
+        avg_frames_ele, avg_frames_cal, avg_frames_all)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (location, num_elephants, num_calves, num_total, id_elephants, id_calves, id_total,
+              avg_frames_ele, avg_frames_cal, avg_frames_all))
+
+    # Step 3: Insert camera-specific data into the camera summary table (distinct per camera_id)
+    for (location, camera_id), data in camera_data.items():
+        num_elephants = data['elephants']
+        num_calves = data['calves']
+        num_total = num_elephants + num_calves
+
+        # Only elephant IDs for id_elephants, only calf IDs for id_calves, and both combined for id_total
+        id_elephants = json.dumps(list(data['elephant_ids']))
+        id_calves = json.dumps(list(data['calf_ids']))
+        id_total = json.dumps(list(data['individuals']))
+
+        avg_frames_ele = np.mean(list(data['frames_ele'].values())) if data['frames_ele'] else 0
+        avg_frames_cal = np.mean(list(data['frames_cal'].values())) if data['frames_cal'] else 0
+        avg_frames_all = np.mean(list(data['frames_all'].values())) if data['frames_all'] else 0
+
+        # Insert into the camera summary table for camera-specific data
+        cur.execute(f"""
+        INSERT OR REPLACE INTO {camera_summary_table} 
+        (location, camera_id, num_elephants, num_calves, num_total, id_elephants, id_calves, id_total, 
+        avg_frames_ele, avg_frames_cal, avg_frames_all)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (location, camera_id, num_elephants, num_calves, num_total, id_elephants, id_calves, id_total,
+              avg_frames_ele, avg_frames_cal, avg_frames_all))
+
+    # Step 4: Insert individual details into the third table
+    for individual_id, data in individual_data.items():
+        camera_ids = json.dumps(list(data['camera_ids']))
+        img_names = json.dumps(list(data['img_names']))
+        num_frames = len(data['img_names'])  # Count the number of frames where the ID appears
+
+        # Insert individual details into the table
+        cur.execute(f"""
+        INSERT OR REPLACE INTO {individual_details_table} 
+        (ID, location, camera_ids, num_frames, img_names)
+        VALUES (?, ?, ?, ?, ?);
+        """, (individual_id, location, camera_ids, num_frames, img_names))
+
+    # Commit all changes to the database
+    conn.commit()
+
+
+def postprocess_database(db_path, source_table):
+    """
+    This function processes the SQLite database, creating three tables: individual summary by location,
+    camera summary by location and camera_id, and individual details for each detected ID.
+
+    Args:
+    db_path (str): Path to the SQLite database.
+    source_table (str): Name of the table that holds the detection data.
+
+    Returns:
+    None
+    """
+    conn = sqlite3.connect(db_path)
+
+    try:
+        # Create the summary and individual details tables
+        create_individual_summary_table(conn, 'location_summary')
+        create_camera_summary_table(conn, 'camera_summary')
+        create_individual_details_table(conn, 'individual_details')
+
+        # Process and insert data into these tables
+        process_individuals_data(conn, source_table, 'location_summary', 'camera_summary', 'individual_details')
+
+        print("Database processing complete.")
+    except Exception as e:
+        print(f"Error processing the database: {e}")
+    finally:
+        conn.close()
+
+
+def postprocess_sqlite_data(db_path: str, source_table: str):
+    """
+    Post-process the SQLite database to create summary tables and individual details.
+    Callback to be invoked at the processing end of the pipeline.
+
+    Args:
+        db_path (str): Path to the SQLite database.
+        source_table (str): Name of the table that holds the detection data.
+
+    Returns:
+        Callable: A callback function that processes the database.
+    """
+
+    def _callback(predictor: Optional[Callable] = None):
+        """
+        Callback function to be called after the detection pipeline.
+        """
+        try:
+            postprocess_database(db_path, source_table)
+        except Exception as e:
+            print(f"[sqlite_db_callback] Error processing data: {e}")
+
+    return _callback
