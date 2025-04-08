@@ -1,6 +1,7 @@
 import os
 import cv2
 import numpy as np
+import traceback
 import concurrent.futures
 from pathlib import Path
 from typing import List, Optional, Callable, Union, Generator, Any, Dict
@@ -171,6 +172,7 @@ class CtEnsembler:
                                     cb(predictor)
                                 except Exception as e:
                                     print(f"Frame callback error: {e}")
+                                    traceback.print_exc()
                             else:
                                 print(f"Callback {cb} is not callable")
 
