@@ -37,7 +37,7 @@ def nms(
     Custom NMS to merge bounding boxes from multiple models for the SAME frame.
 
     Steps:
-      1) Concatenate all boxes from each Results into a single [N,6] => (x1, y1, x2, y2, conf, cls).
+      1) Concatenate all boxes from each Results into a single [N,6] => (x1, y1, x2, y2, conf, cls). Tracking must happen only after this. Otherwise the format is different.
       2) Discard boxes with conf < conf_thres.
       3) Sort remaining boxes by confidence desc.
       4) Loop-based NMS:
@@ -159,3 +159,16 @@ def iou(boxA, boxB):
     areaB = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
     union = areaA + areaB - interArea
     return interArea / union if union > 0 else 0.0
+
+
+def unpack_box(box):
+    if len(box) == 7:
+        # If the box has an ID, it's a tracked box
+        x1, y1, x2, y2, track_id, c_conf, c_cls = box
+    else:
+        x1, y1, x2, y2, c_conf, c_cls = box
+        track_id = -1  # No tracking ID
+    c_cls = int(c_cls)
+    track_id = int(track_id)
+
+    return x1, y1, x2, y2, track_id, c_conf, c_cls

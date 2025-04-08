@@ -7,7 +7,7 @@ from typing import List, Optional, Callable, Union, Generator, Any, Dict
 from ultralytics.engine.results import Results, Boxes
 
 from ct_detector.callbacks.base import predict_callback
-from ct_detector.utils.results import iou
+from ct_detector.utils.results import iou, unpack_box
 
 CLASS_MAP = {
     "calf": 0,
@@ -46,13 +46,15 @@ def analyze_boxes(boxes: Boxes, class_map: dict = CLASS_MAP):
     # shape [N,6] => x1,y1,x2,y2, conf, cls
     if boxes is not None and len(boxes) > 0:
         all_boxes = boxes.data.cpu().numpy()
-        # Example: for box in all_boxes => [x1,y1,x2,y2, conf, cls]
+
+        # Example: for box in all_boxes => [x1,y1,x2,y2, (id), conf, cls]
         for box in all_boxes:
-            x1, y1, x2, y2, c_conf, c_cls = box
-            c_cls = int(c_cls)
+
+            # Unpack the box data
+            x1, y1, x2, y2, track_id, c_conf, c_cls = unpack_box(box)
 
             # store for JSON logging
-            data.boxes_data.append([float(x1), float(y1), float(x2), float(y2), float(c_conf), c_cls])
+            data.boxes_data.append([float(x1), float(y1), float(x2), float(y2), track_id, float(c_conf), c_cls])
             data.conf_values.append(float(c_conf))
 
             # check class
@@ -78,7 +80,7 @@ def analyze_boxes(boxes: Boxes, class_map: dict = CLASS_MAP):
         max_diag = 0.0
         if boxes is not None and len(boxes) > 0:
             for box in boxes.data.cpu().numpy():
-                x1, y1, x2, y2, c_conf, c_cls = box
+                x1, y1, x2, y2, track_id, c_conf, c_cls = unpack_box(box)
                 if int(c_cls) == cls:
                     diag = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
                     if diag >= max_diag:
@@ -93,7 +95,7 @@ def analyze_boxes(boxes: Boxes, class_map: dict = CLASS_MAP):
         if ref_box is not None:
             ref_xyxy = ref_box[:4]
             for box in boxes.data.cpu().numpy():
-                x1, y1, x2, y2, c_conf, c_cls = box
+                x1, y1, x2, y2, track_id, c_conf, c_cls = unpack_box(box)
                 if int(c_cls) == cls:
                     overlap = iou(ref_box[:4], box[:4])
                     if overlap > best_iou:
