@@ -68,7 +68,7 @@ class CtTracker:
                 self.trackers[tracker_index].reset()
 
             if result is None or result.boxes is None or len(result.boxes) == 0:  # Check for None values
-                print("No detection")
+                #print("No detection")
                 return result
             else:
                 detection_boxes = result.boxes.cpu().numpy()
