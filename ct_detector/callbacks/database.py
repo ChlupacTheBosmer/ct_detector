@@ -1,3 +1,4 @@
+import os.path
 import sqlite3
 import json
 import math
@@ -30,6 +31,9 @@ def analyze_boxes(boxes: Boxes, class_map: dict = CLASS_MAP):
         "conf_values": [],
         "num_elephants": 0,
         "num_calves": 0,
+        "elephant_ids": [],
+        "calf_ids": [],
+        "num_individuals": 0,
         "ears_visible": 0,
         "tusks_visible": 0,
         "max_ear_diag": 0.0,
@@ -74,6 +78,19 @@ def analyze_boxes(boxes: Boxes, class_map: dict = CLASS_MAP):
             else:
                 # unknown class => ignore or handle
                 pass
+
+        if boxes.is_track:
+            # If the boxes are tracked, we can get the IDs of the elephants and calves
+            for box in all_boxes:
+                x1, y1, x2, y2, track_id, c_conf, c_cls = unpack_box(box)
+                if int(c_cls) == class_map['elephant'] and track_id != -1:
+                    data.elephant_ids.append(int(track_id))
+                elif int(c_cls) == class_map['calf'] and track_id != -1:
+                    data.calf_ids.append(int(track_id))
+
+            # Create a list of all IDs
+            all_ids = data.elephant_ids + data.calf_ids
+            data.num_individuals = len(set(all_ids))  # unique IDs
 
     def get_max_cls_box(boxes: Boxes, cls: int):
         max_box = None
@@ -166,7 +183,8 @@ def log_prediction_data_into_sqlite(
         db_path: str,
         table_name: str = "data",
         create_if_missing: bool = True,
-        class_map: dict = CLASS_MAP
+        class_map: dict = CLASS_MAP,
+        metadata: Optional[Dict[str, Any]] = None
 ):
     """
     Creates a callback function that logs detection results into an SQLite database.
@@ -183,6 +201,9 @@ def log_prediction_data_into_sqlite(
        - image_id (text)
        - num_elephants (int)
        - num_calves (int)
+       - elephant_ids (text) => JSON array of IDs
+       - calf_ids (text) => JSON array of IDs
+       - num_individuals (int)
        - ears_visible (int)
        - tusks_visible (int)
        - boxes_data (text) => JSON array of [x1,y1,x2,y2,conf,cls]
@@ -224,6 +245,9 @@ def log_prediction_data_into_sqlite(
                     image_id TEXT PRIMARY KEY,
                     num_elephants INTEGER,
                     num_calves INTEGER,
+                    elephant_ids TEXT,
+                    calf_ids TEXT,
+                    num_individuals INTEGER,
                     ears_visible INTEGER,
                     tusks_visible INTEGER,
                     boxes_data TEXT,
@@ -257,11 +281,12 @@ def log_prediction_data_into_sqlite(
                 # 4) Insert row into DB
                 insert_sql = f"""
                 INSERT OR REPLACE INTO {table_name} (
-                    image_id, num_elephants, num_calves, ears_visible, tusks_visible,
+                    image_id, num_elephants, num_calves, elephant_ids,
+                    calf_ids, num_individuals, ears_visible, tusks_visible,
                     boxes_data, conf_values, max_ear_diagonal, max_tusk_diagonal,
                     elephant_diagonal_for_largest_ear, elephant_diagonal_for_largest_tusk, ear_to_body_ratio, 
                     tusk_to_body_ratio, time_of_day, location, camera_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """
 
                 # in future, user can supply time_of_day/location/camera_id from metadata
@@ -270,6 +295,9 @@ def log_prediction_data_into_sqlite(
                     image_id,
                     data.num_elephants,
                     data.num_calves,
+                    json.dumps(data.elephant_ids),
+                    json.dumps(data.calf_ids),
+                    data.num_individuals,
                     data.ears_visible,
                     data.tusks_visible,
                     json.dumps(data.boxes_data),
@@ -280,9 +308,9 @@ def log_prediction_data_into_sqlite(
                     float(data.elephant_diag_for_largest_tusk),
                     float(data.ear_to_body_ratio),
                     float(data.tusk_to_body_ratio),
-                    "",  # time_of_day
-                    "",  # location
-                    ""  # camera_id
+                    metadata.get("time_od_day", "") if metadata else "",  # time_of_day
+                    metadata.get("location", "") if metadata else "",  # location
+                    metadata.get("camera_id", "") if metadata else ""  # camera_id
                 )
 
                 cur.execute(insert_sql, db_row)
