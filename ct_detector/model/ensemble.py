@@ -160,12 +160,15 @@ class CtEnsembler:
                     merged.path = paths[frame_idx] if paths and len(
                         paths) > frame_idx else None  # attach the path if available
 
+                    predictor = CtPredictor()
+                    predictor.results = [merged]
+
                     # 4) Callbacks
                     if _callbacks and isinstance(_callbacks, list) and len(_callbacks) > 0:
                         for cb in _callbacks:
                             if callable(cb):
                                 try:
-                                    cb([merged])
+                                    cb(predictor)
                                 except Exception as e:
                                     print(f"Frame callback error: {e}")
                             else:
