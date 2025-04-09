@@ -96,7 +96,6 @@ From: /cvmfs/singularity.metacentrum.cz/NGC/PyTorch:24.04-py3.SIF
         Pillow
         tabulate
         ultralytics
-        ct_detector
     )
 
     # Loop through packages and test importing
