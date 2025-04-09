@@ -43,7 +43,7 @@ From: /cvmfs/singularity.metacentrum.cz/NGC/PyTorch:24.04-py3.SIF
         numpy>=1.22.2 \
         pandas \
         openpyxl \
-        Pillow \
+        pillow \
         tabulate \
         ultralytics==8.3.101
 
