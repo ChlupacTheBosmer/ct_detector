@@ -1,0 +1,137 @@
+Bootstrap: localimage
+From: /cvmfs/singularity.metacentrum.cz/NGC/PyTorch:24.04-py3.SIF
+
+%environment
+    export TZ=Europe/Prague
+    export PYTHONUSERBASE=$SCRATCH_DIR/python_packages  # Ensures Python packages are installed in the user space
+
+%post
+    # Set timezone by linking to the appropriate zoneinfo file
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+
+    # Remove existing OpenCV and clean up previous installations
+    pip uninstall -y opencv
+    rm -rf /usr/local/lib/python3.10/dist-packages/cv2
+
+    # Disable service restarts during package installation
+    echo 'exit 101' > /usr/sbin/policy-rc.d
+    chmod +x /usr/sbin/policy-rc.d
+
+    # Update and install necessary system packages (only the ones needed for the image)
+    DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -q -y --no-install-recommends \
+        libgl1-mesa-glx \
+        libxcb1 \
+        libx11-6 \
+        python3-openslide \
+        ca-certificates \
+        python3-dev \
+        git \
+        wget \
+        sudo \
+        ninja-build \
+        ffmpeg
+
+    # Restore service restart behavior
+    rm /usr/sbin/policy-rc.d
+
+    # Install necessary Python packages
+    pip3 install --upgrade pip
+    pip3 install \
+        clearml \
+        setuptools \
+        matplotlib \
+        numpy>=1.22.2 \
+        pandas \
+        openpyxl \
+        Pillow \
+        tabulate \
+        ultralytics==8.3.101
+
+    # Clean up apt cache to reduce image size
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%labels
+    Author Petr Chlup
+    Version 1.0
+
+%help
+    This container is based on /cvmfs/singularity.metacentrum.cz/NGC/PyTorch:24.04-py3.SIF.
+    Info here: https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-04.html
+    It includes various Python packages for machine learning, image processing, and data analysis.
+
+    This image is specifically configured for use with the `ct_detector` package, designed to assist biologists in analyzing camera trap data using YOLO models. It includes the following custom Python packages:
+      - **ct_detector**: A Python package for running YOLO models on camera trap data.
+
+    The following key packages are installed and updated on every run:
+      - **ct_detector**: Always pulled from the latest version on GitHub when the image is executed.
+      - **clearml**: For managing machine learning experiments.
+      - **setuptools**: For package development and distribution.
+      - **matplotlib**: For data visualization.
+      - **numpy**: For numerical computing.
+      - **pandas**: For data manipulation and analysis.
+      - **openpyxl**: For reading and writing Excel files.
+      - **Pillow**: For image processing.
+      - **tabulate**: For generating formatted tables.
+      - **ultralytics**: YOLO implementation for object detection.
+
+    To run the container, use:
+      singularity run -e SCRATCH_DIR=$SCRATCH_DIR my_new_image.sif
+    You can also pass additional commands or scripts to the container.
+    For example:
+      singularity run my_new_image.sif python your_script.py
+
+%test
+    # Test script to verify the installation of all necessary packages
+    echo "Running test script to verify installations..."
+
+    # List of required packages to test
+    packages=(
+        clearml
+        setuptools
+        matplotlib
+        numpy
+        pandas
+        openpyxl
+        Pillow
+        tabulate
+        ultralytics
+        ct_detector
+    )
+
+    # Loop through packages and test importing
+    for package in "${packages[@]}"; do
+        echo "Testing import for package: $package"
+        python3 -c "import $package" || echo "Error importing $package"
+    done
+
+    echo "Test script completed successfully."
+
+%runscript
+
+    # Create user-specific Python package directory
+    echo "Creating PYTHONUSERBASE..."
+    mkdir -p $SCRATCH_DIR/python_packages
+
+    # Set PYTHONUSERBASE to the scratch directory
+    export PYTHONUSERBASE=$SCRATCH_DIR/python_packages
+
+    # Always install the latest version of ct_detector from GitHub upon running the image
+    echo "Installing ct_detector from GitHub..."
+    pip install --upgrade git+https://github.com/ChlupacTheBosmer/ct_detector.git@master#egg=ct_detector
+
+    # Add the user base binary directory to PATH
+    export PATH=$PYTHONUSERBASE/bin:$PATH
+
+    # Debugging statements
+    echo "Python path: $(which python)"
+    echo "Python version: $(python --version)"
+    echo "PYTHONUSERBASE: $PYTHONUSERBASE"
+    echo "PYTHONPATH: $PYTHONPATH"
+
+    # Start your main application or enter the shell
+    if [ "$#" -eq 0 ]; then
+        exec /bin/bash
+    else
+        exec "$@"
+    fi

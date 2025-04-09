@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
 setup(
     name="ct_detector",
@@ -10,6 +10,7 @@ setup(
         "Pillow",
         "pandas",
         "openpyxl",
+        "lap",
         "tabulate"
     ]
 )
