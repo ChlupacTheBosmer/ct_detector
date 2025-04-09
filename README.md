@@ -1,5 +1,5 @@
 
-# ct_detector: Comprehensive YOLO-based Camera Trap Detection Package
+# ct_detector: YOLO-based Camera Trap Detection
 
 🐘📷🌿
 
