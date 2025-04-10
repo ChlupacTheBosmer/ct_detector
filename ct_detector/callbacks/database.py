@@ -454,7 +454,7 @@ def process_individuals_data(conn, source_table, summary_table, camera_summary_t
                                        'calf_ids': set(), 'frames_ele': defaultdict(int),
                                        'frames_cal': defaultdict(int), 'frames_all': defaultdict(int)})
 
-    individual_data = defaultdict(lambda: {'camera_ids': set(), 'num_frames': 0, 'img_names': set()})
+    individual_data = defaultdict(lambda: {'location': set(), 'camera_ids': set(), 'num_frames': 0, 'img_names': set()})
 
     # Process each row in the source table
     for row in rows:
@@ -492,6 +492,7 @@ def process_individuals_data(conn, source_table, summary_table, camera_summary_t
         for ele_id in elephant_ids | calf_ids:
             location_data[location]['frames_all'][ele_id] += 1
             camera_data[(location, camera_id)]['frames_all'][ele_id] += 1
+            individual_data[ele_id]['location'].add(location)
             individual_data[ele_id]['camera_ids'].add(camera_id)
             individual_data[ele_id]['img_names'].add(os.path.basename(image_id))
 
@@ -545,6 +546,7 @@ def process_individuals_data(conn, source_table, summary_table, camera_summary_t
 
     # Step 4: Insert individual details into the third table
     for individual_id, data in individual_data.items():
+        location = ', '.join(data['location'])  # Join multiple locations if any
         camera_ids = json.dumps(list(data['camera_ids']))
         img_names = json.dumps(list(data['img_names']))
         num_frames = len(data['img_names'])  # Count the number of frames where the ID appears
