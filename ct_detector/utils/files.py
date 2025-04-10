@@ -4,6 +4,8 @@ import numpy as np
 from pathlib import Path
 from typing import List, Optional, Callable, Union, Generator, Any, Dict, Tuple
 from ct_detector.display import COLOR_CONVERSIONS, DEFAULT_CONVERSION
+import shutil
+from typing import List
 
 
 def load_images_from_source(
@@ -173,3 +175,88 @@ def load_image(image_path, conversion=None):
                 pass
 
         return image, shape
+
+
+def copy_images(source_dir: str, output_dir: str, file_names: List[str]) -> None:
+    """
+    Recursively search the source directory for specific image files and copy them into the output directory.
+
+    If an image file already exists in the output directory, the function compares the sizes:
+        - If the sizes are the same, the file is assumed to be identical and is skipped.
+        - If the sizes differ, the new file is copied with a suffix appended to its base name.
+          The suffix is the name of the immediate parent folder from which the file was found.
+
+    Note:
+        The file_names list may contain names with or without file extensions.
+        If an extension is provided, an exact (case-insensitive) match is performed.
+        Otherwise, a match is made on the file's stem (name without extension).
+
+    Args:
+        source_dir (str): The root directory to search for the image files (search is recursive).
+        output_dir (str): The directory where the image files will be copied.
+        file_names (List[str]): A list of file names to be copied (with or without extensions).
+    """
+    # Create Path objects for easier manipulation and ensure output directory exists.
+    source_path = Path(source_dir)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Separate names with extensions from those without, using lowercase for case-insensitive matching.
+    names_with_ext = set()
+    names_without_ext = set()
+    for name in file_names:
+        if Path(name).suffix:  # if an extension is present
+            names_with_ext.add(name.lower())
+        else:
+            names_without_ext.add(name.lower())
+
+    # Walk through the source directory recursively
+    for root, _, files in os.walk(source_path):
+        for file in files:
+            file_lower = file.lower()
+            file_path = Path(root) / file
+
+            # Determine if the file matches one of the specified file names.
+            # Check for an exact match if the user provided an extension.
+            match = False
+            if file_lower in names_with_ext:
+                match = True
+            else:
+                # If no extension was provided in the search term,
+                # compare only the base name (stem) of the file.
+                if file_path.stem.lower() in names_without_ext:
+                    match = True
+
+            if not match:
+                continue  # Skip files that do not match
+
+            # Define the target file path in the output directory.
+            target_file = output_path / file
+
+            # If a file with the same name already exists in the output directory…
+            if target_file.exists():
+                # Compare the file sizes to decide whether to skip or rename.
+                existing_size = target_file.stat().st_size
+                new_size = file_path.stat().st_size
+
+                if existing_size == new_size:
+                    # Files are assumed to be identical; do not copy again.
+                    print(f"Skipping {file_path} (identical file exists)")
+                    continue
+                else:
+                    # Files differ; add a suffix to the new file name.
+                    # The suffix is the immediate parent folder name where the file was found.
+                    parent_folder = file_path.parent.name
+                    new_name = f"{file_path.stem}_{parent_folder}{file_path.suffix}"
+                    target_file = output_path / new_name
+                    # If the target filename with the suffix also exists and differs,
+                    # append a counter until an unused name is found.
+                    counter = 1
+                    while target_file.exists() and target_file.stat().st_size != new_size:
+                        new_name = f"{file_path.stem}_{parent_folder}_{counter}{file_path.suffix}"
+                        target_file = output_path / new_name
+                        counter += 1
+
+            # Copy the file (using copy2 to preserve metadata)
+            shutil.copy2(file_path, target_file)
+            print(f"Copied {file_path} to {target_file}")
