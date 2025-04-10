@@ -61,8 +61,8 @@ COLOR_CONVERSIONS = {
 DEFAULT_CONVERSION = "NONE"
 
 __all__ = [
-    display_file_image,
-    display_pil_image,
-    COLOR_CONVERSIONS,
-    DEFAULT_CONVERSION
+    "display_file_image",
+    "display_pil_image",
+    "COLOR_CONVERSIONS",
+    "DEFAULT_CONVERSION"
 ]

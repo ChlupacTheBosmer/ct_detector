@@ -57,8 +57,13 @@ DATASETS_DIR = os.path.join(get_assets_path(), "datasets")
 MODELS = get_models_from_directory(MODELS_DIR)
 DATASETS = get_datasets_from_directory(DATASETS_DIR)
 
-__all__ = [MODELS,
-           evaluate_model,
-           compare_models,
-           CtPredictor,
-           CtEnsembler]
+__all__ = [
+    "MODELS",
+    "DATASETS",
+    "MODELS_DIR",
+    "DATASETS_DIR",
+    "evaluate_model",
+    "compare_models",
+    "CtPredictor",
+    "CtEnsembler"
+]
